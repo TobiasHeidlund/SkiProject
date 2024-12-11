@@ -10,6 +10,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.os.Binder
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -34,8 +35,25 @@ class GpsService: Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
 
-    override fun onBind(p0: Intent?): IBinder? {
-        return null;
+    private val binder = MyBinder()
+
+    override fun onBind(intent: Intent?): IBinder {
+        return binder
+    }
+
+    inner class MyBinder : Binder() {
+        fun stopService() {
+            Log.d(TAG, "Binder stopService: ")
+            stopGpsTracking()
+        }
+
+    }
+
+    fun stopGpsTracking() {
+        fusedLocationClient.removeLocationUpdates(locationCallback)
+        Log.d(TAG, "stopGpsTracking: ")
+        stopForeground(ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopSelf()
     }
     private fun startForeground() {
         val locationPermission =
@@ -91,31 +109,37 @@ class GpsService: Service() {
     @SuppressLint("MissingPermission")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         Log.d(TAG, "onStartCommand: ")
+        if (intent?.action == "STOP_SERVICE") {
+            stopSelf()
+        }
         startForeground()
 
         val locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY,1000).build()
-        val locationCallback = object : LocationCallback() {
-            override fun onLocationResult(locationResult: LocationResult) {
-                if (locationResult != null) {
-                    if (locationResult == null) {
-                        return
-                    }
-                    //Showing the latitude, longitude and accuracy on the home screen.
-                    for (location in locationResult.locations) {
-                        Log.i(TAG, "onLocationResult: "+MessageFormat.format(
-                            "Lat: {0} Long: {1} Accuracy: {2}", location.latitude,
-                            location.longitude, location.accuracy
-                        ))
-                    }
-                }
-            }
-        };
+
         fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, this.mainLooper)
 
 
 
         return START_NOT_STICKY
     }
+
+    val locationCallback = object : LocationCallback() {
+        override fun onLocationResult(locationResult: LocationResult) {
+            if (locationResult != null) {
+                if (locationResult == null) {
+                    return
+                }
+                //Showing the latitude, longitude and accuracy on the home screen.
+                for (location in locationResult.locations) {
+                    Log.i(TAG, "onLocationResult: "+MessageFormat.format(
+                        "Lat: {0} Long: {1} Accuracy: {2}", location.latitude,
+                        location.longitude, location.accuracy
+                    ))
+                }
+            }
+        }
+    };
+
     override fun startForegroundService(service: Intent?): ComponentName? {
         Log.d(TAG, "startForegroundService: ")
         return super.startForegroundService(service)
