@@ -9,14 +9,21 @@ import android.app.Service
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
+import android.os.Bundle
 import android.os.IBinder
+import android.os.Message
+import android.os.Messenger
+import android.os.RemoteException
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.PermissionChecker
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.MutableLiveData
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -27,15 +34,42 @@ import me.heidlund.skiapp.GPS_SERVICE_NOTIFICATION_CHANNEL_ID
 import me.heidlund.skiapp.GPS_SERVICE_NOTIFICATION_CHANNEL_ID_STRING
 import me.heidlund.skiapp.GPS_SERVICE_NOTIFICATION_CHANNEL_NAME
 import me.heidlund.skiapp.R
-import java.text.MessageFormat
+import me.heidlund.skiapp.models.SkiPoint
 
 
 class GpsService: Service() {
     private val TAG = "GpsService"
     private lateinit var fusedLocationClient: FusedLocationProviderClient
 
-
+    private val _currentData = MutableLiveData<SkiPoint>()
+    val currentData: LiveData<SkiPoint> = _currentData
     private val binder = MyBinder()
+    private var serviceBMessenger: Messenger? = null
+
+
+    private fun toTransmittService(skiPoint: SkiPoint) {
+        if (serviceBMessenger != null) {
+            val msg: Message = Message.obtain(null, GpsTransmittService.MSG_ID)
+            val bundle = Bundle()
+            bundle.putSerializable("data",skiPoint)
+            msg.data = bundle
+            try {
+                serviceBMessenger!!.send(msg)
+            } catch (e: RemoteException) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private val connection: ServiceConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            serviceBMessenger = Messenger(service)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            serviceBMessenger = null
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder {
         return binder
@@ -46,13 +80,14 @@ class GpsService: Service() {
             Log.d(TAG, "Binder stopService: ")
             stopGpsTracking()
         }
+        fun getService(): GpsService = this@GpsService
 
     }
 
     fun stopGpsTracking() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
         Log.d(TAG, "stopGpsTracking: ")
-        stopForeground(ServiceCompat.STOP_FOREGROUND_REMOVE)
+        stopForeground(STOP_FOREGROUND_DETACH)
         stopSelf()
     }
     private fun startForeground() {
@@ -69,7 +104,7 @@ class GpsService: Service() {
         if(notificationManager.getNotificationChannel(GPS_SERVICE_NOTIFICATION_CHANNEL_ID_STRING) == null){
             Log.d(TAG, "startForeground: ADDING NOTEFICATION CHANNEL")
             val channel = NotificationChannel(GPS_SERVICE_NOTIFICATION_CHANNEL_ID_STRING,
-                GPS_SERVICE_NOTIFICATION_CHANNEL_NAME, NotificationManager.IMPORTANCE_LOW).apply {
+                GPS_SERVICE_NOTIFICATION_CHANNEL_NAME, NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Channel description"
             }
             notificationManager.createNotificationChannel(channel)
@@ -131,10 +166,18 @@ class GpsService: Service() {
                 }
                 //Showing the latitude, longitude and accuracy on the home screen.
                 for (location in locationResult.locations) {
-                    Log.i(TAG, "onLocationResult: "+MessageFormat.format(
+                    Log.d(TAG, "onLocationResult: "+ location.hasAltitude())
+                    //Log.d(TAG, "onLocationResult: "+ location.hasMslAltitude())
+                    val point = SkiPoint(location.latitude, location.longitude, location.altitude,
+                        location.speed.toDouble(), location.time, location.accuracy)
+                    toTransmittService(point)
+                    _currentData.postValue(point)
+                   // _currentData.value = point
+                    /*Log.i(TAG, "onLocationResult: "+MessageFormat.format(
                         "Lat: {0} Long: {1} Accuracy: {2}", location.latitude,
                         location.longitude, location.accuracy
-                    ))
+                    ))*/
+
                 }
             }
         }
@@ -153,6 +196,8 @@ class GpsService: Service() {
     override fun onCreate() {
         Log.d(TAG, "onCreate: ")
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        val intent = Intent(this, GpsTransmittService::class.java)
+        bindService(intent, connection, BIND_AUTO_CREATE)
         super.onCreate()
     }
 

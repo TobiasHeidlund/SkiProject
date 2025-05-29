@@ -1,7 +1,6 @@
 package me.heidlund.skiapp
 
 import android.Manifest
-import android.app.ActivityManager
 
 import android.content.ComponentName
 import android.content.Context
@@ -16,46 +15,61 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.Dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.PermissionChecker
+import androidx.lifecycle.LiveData
+import me.heidlund.skiapp.models.SkiPoint
 import me.heidlund.skiapp.service.GpsService
 import me.heidlund.skiapp.ui.theme.SkiAppTheme
+import me.heidlund.skiapp.uiComponents.LiveView
+import me.heidlund.skiapp.uiComponents.WebbView
 
 class MainActivity : ComponentActivity() {
     var TAG = "MainActivity"
     var boundService = mutableStateOf<GpsService.MyBinder?>(null)
+    var liveData: MutableState<LiveData<SkiPoint>?> = mutableStateOf(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
 
         enableEdgeToEdge()
         setContent {
 
             SkiAppTheme {
-                Scaffold(modifier = Modifier.fillMaxSize(), bottomBar = {
-                    Button(onClick = { if (boundService.value != null) {
+                Scaffold(modifier = Modifier.fillMaxSize().padding(Dp(10f)), bottomBar = {
+                    Button(modifier = Modifier.fillMaxWidth(), onClick = { if (boundService.value != null) {
                         stopGpsService()
                     } else {
                         startGpsService()
                     } }) { Text(text = if (boundService.value != null) "Stop Service" else "Start Service")
                     }
-                }) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
+                }){ _ ->
+                    if (liveData.value == null) {
+                        WebbView()
+                    }else{
+                        val data = liveData.value!!.observeAsState()
+                        LiveView(modifier = Modifier.fillMaxSize(1f), skiPoint = data)
+                    }
 
-            }
+
+
+                }
         }
+      }
     }
-    }
+
 
 
 
@@ -74,11 +88,13 @@ class MainActivity : ComponentActivity() {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
             val binder = service as GpsService.MyBinder
             boundService.value = binder
+            liveData.value = binder.getService().currentData
             Log.d(TAG, "onServiceConnected: ")
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
             boundService.value = null
+            liveData.value = null
             Log.d(TAG, "onServiceDisconnected: ")
         }
     }
@@ -135,18 +151,3 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    SkiAppTheme {
-        Greeting("Android")
-    }
-}
